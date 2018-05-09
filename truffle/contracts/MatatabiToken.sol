@@ -115,9 +115,10 @@ contract MatatabiToken is Owned{
         name = _tokenName;
         symbol = _tokenSymbol;
         decimals = 0;
-        totalSupply = _initialTotalSupply;
+        totalSupply = _initialTotalSupply;//@todo 境界値
         //Extends parameter
         suppliedAmount = 0;
+        //@todo 境界値
         lockup = Lockup(_lockup_update,_lockup_cancel);
         config = Config(_transferEnable,_rate,_maxTokenPerAccount);
         configUpdatedBlock = 0;
@@ -208,6 +209,7 @@ contract MatatabiToken is Owned{
             spender.receiveApproval(msg.sender, _value, this, _extraData);
             return true;
         }
+        
     }
 
 
@@ -219,7 +221,7 @@ contract MatatabiToken is Owned{
         return true;
     }
 
-    function addTotalSupply(uint32 _additional) public onlyOwner returns (bool){
+    function addTotalSupply(uint256 _additional) public onlyOwner returns (bool){
         require(_additional>0);
         totalSupply = SafeMath.add(totalSupply,_additional);
         configUpdatedBlock = block.number+lockup.update;
@@ -227,12 +229,13 @@ contract MatatabiToken is Owned{
     }
 
     function setTransferEnable(bool _TransferEnable) public onlyOwner returns (bool){
+        require(config.transferEnable!=_TransferEnable);
         config.transferEnable = _TransferEnable;
         configUpdatedBlock = block.number+lockup.update;
         return true;
     }
 
-    function addMaxTokenPerAccount(uint32 _additional) public onlyOwner returns (bool){
+    function addMaxTokenPerAccount(uint64 _additional) public onlyOwner returns (bool){
         require(_additional>0);
         config.maxTokenPerAccount = SafeMath.add64(config.maxTokenPerAccount,_additional);
         configUpdatedBlock = block.number+lockup.update;
@@ -240,7 +243,7 @@ contract MatatabiToken is Owned{
     }
 
     function canExchange() public view returns (bool){
-        return block.number-configUpdatedBlock>=lockup.update;
+        return block.number>=configUpdatedBlock;
     }
 
 
