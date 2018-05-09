@@ -115,9 +115,10 @@ contract MatatabiToken is Owned{
         name = _tokenName;
         symbol = _tokenSymbol;
         decimals = 0;
-        totalSupply = _initialTotalSupply;
+        totalSupply = _initialTotalSupply;//@todo 境界値
         //Extends parameter
         suppliedAmount = 0;
+        //@todo 境界値
         lockup = Lockup(_lockup_update,_lockup_cancel);
         config = Config(_transferEnable,_rate,_maxTokenPerAccount);
         configUpdatedBlock = 0;
@@ -208,6 +209,7 @@ contract MatatabiToken is Owned{
             spender.receiveApproval(msg.sender, _value, this, _extraData);
             return true;
         }
+        
     }
 
 
