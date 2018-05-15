@@ -217,33 +217,37 @@ contract MatatabiToken is Owned{
     {
         require(0<_newRate && _newRate<10001);
         config.rate = _newRate;
-        configUpdatedBlock = block.number + lockup.update;
+        configUpdatedBlock = block.number;
         return true;
     }
 
     function addTotalSupply(uint256 _additional) public onlyOwner returns (bool){
         require(_additional>0);
         totalSupply = SafeMath.add(totalSupply,_additional);
-        configUpdatedBlock = block.number+lockup.update;
+        configUpdatedBlock = block.number;
         return true;
     }
 
     function setTransferEnable(bool _TransferEnable) public onlyOwner returns (bool){
         require(config.transferEnable!=_TransferEnable);
         config.transferEnable = _TransferEnable;
-        configUpdatedBlock = block.number+lockup.update;
+        configUpdatedBlock = block.number;
         return true;
     }
 
     function addMaxTokenPerAccount(uint64 _additional) public onlyOwner returns (bool){
         require(_additional>0);
         config.maxTokenPerAccount = SafeMath.add64(config.maxTokenPerAccount,_additional);
-        configUpdatedBlock = block.number+lockup.update;
+        configUpdatedBlock = block.number;
         return true;        
     }
 
     function canExchange() public view returns (bool){
-        return block.number>=configUpdatedBlock;
+        if(block.number<lockup.update){
+            return false;
+        }
+        //右辺と等しいブロックから取引可能
+        return block.number-lockup.update>=configUpdatedBlock;
     }
 
 
@@ -251,11 +255,11 @@ contract MatatabiToken is Owned{
     function () public payable{
         uint256 token_amount = SafeMath.mul(msg.value,config.rate) / 1000000000000000000;
         require(canExchange());
-        require(msg.value<=2**128);
+        require(msg.value<=(255*1000000000000000000));
         require(token_amount<=2**32);
-        require(token_amount<=totalSupply-suppliedAmount);
+        require(SafeMath.add(token_amount,suppliedAmount)<=totalSupply);
         require(token_amount>0);
-        require(balanceOf[msg.sender]+token_amount<=config.maxTokenPerAccount);
+        require(SafeMath.add(token_amount,balanceOf[msg.sender])<=config.maxTokenPerAccount);
 
         //update balanceOf
         balanceOf[msg.sender] += token_amount;
@@ -263,8 +267,7 @@ contract MatatabiToken is Owned{
         
         //update last trade
         exchangeLog.push(ExchangeLog(msg.sender,uint64(block.number),uint128(msg.value),uint32(token_amount)));
-
-        //event
+        //event:0からsenderへトークンを移動
         emit Transfer(0, msg.sender,token_amount);
     }
 
@@ -272,8 +275,8 @@ contract MatatabiToken is Owned{
         uint th_block = SafeMath.sub(block.number,lockup.cancel);
 
         for(uint i = exchangeLog.length-1;i >= 0;i--){
-            //遡るブロック番号の制限
-            if(exchangeLog[i].brockNumber<th_block){
+            //遡るブロック番号の制限(右辺と等しいブロックからCancel無効)
+            if(th_block>=exchangeLog[i].brockNumber){
                 break;
             }
             //対象アドレス？
@@ -282,13 +285,12 @@ contract MatatabiToken is Owned{
             }
             //受信通貨量は0よりおおきい？
             if(exchangeLog[i].inputCurrency==0){
-                continue;
+                revert();//すでにキャンセルされていたらダメ。(continueにすると範囲内をさかのぼるけど直前打ち切りにする。)
             }
             //対象。
             uint256 revers_balance = exchangeLog[i].inputCurrency;
             uint32 reverse_token = exchangeLog[i].outputToken;
 
-            require(revers_balance>0);
             require(address(this).balance >= revers_balance);
             require(balanceOf[msg.sender] >= reverse_token);
 
@@ -297,29 +299,38 @@ contract MatatabiToken is Owned{
             exchangeLog[i].inputCurrency = 0;
             exchangeLog[i].outputToken = 0;
             msg.sender.transfer(revers_balance);
+            //senderからnullへトークンを移動
+            emit Transfer(msg.sender,0,reverse_token);
             return revers_balance;            
         }
-        return 0;
+        assert(false);//キャンセルに失敗した場合
     }
     function burn(uint _amount) public returns (bool){
+        require(config.transferEnable == true);
+        require(_amount>0);
         require(balanceOf[msg.sender]>=_amount);
         balanceOf[msg.sender] -= _amount;
         suppliedAmount -= _amount;
+        //senderから0へトークンを移動
+        emit Transfer(msg.sender,0,_amount);
         return true;
         
     }
 
     function payout() public onlyOwner returns (bool){
-        msg.sender.transfer(payableAmount());
+        uint r = payableAmount();
+        require(r>0);
+        msg.sender.transfer(r);
         return true;
     }
 
     function payableAmount() public view onlyOwner returns(uint){
         uint th_block = SafeMath.sub(block.number,lockup.cancel);
         uint temp_amount = 0;
+        //キャンセル有効なブロックの合計inputを返す。
         for(uint i = exchangeLog.length-1;i >= 0;i--){
-            //遡るブロック番号の制限
-            if(exchangeLog[i].brockNumber<th_block){
+            //遡るブロック番号の制限(右辺と等しいブロックからCancel無効)
+            if(th_block>=exchangeLog[i].brockNumber){
                 break;
             }
             temp_amount += exchangeLog[i].inputCurrency;
